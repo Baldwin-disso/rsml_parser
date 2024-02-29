@@ -87,10 +87,13 @@ def add_plantroot_len_column(df, column_name='cumuldist', scale_factor=1.0):
     df.insert(7, column_name, cumulative , True )
     return df
 
+
+
 #### MAIN 
-def main(*args, **kwargs):   
+def _main(input_file_path, **kwargs):   
+    print('parsing and converting : {}'.format(input_file_path))
     # manage path
-    input_file_path = Path(args[0])
+    input_file_path = Path(input_file_path)
     output_file_path = input_file_path.with_suffix('.csv')
     subfiles_folder_path = Path(input_file_path.parent,input_file_path.stem)
 
@@ -159,14 +162,19 @@ def main(*args, **kwargs):
             subfile_path =  Path(subfiles_folder_path, k + '.csv')
             sdf.to_csv(subfile_path, index=False)
 
-    print('end of parsing and conversion')
+
+def main(*args, **kwargs):
+    for arg in args: 
+        _main(arg, **kwargs)
+
 
 
 if __name__=='__main__':
     #parsing
     parser = argparse.ArgumentParser(description='rsml parser and converter')
-    parser.add_argument('inputfile', 
+    parser.add_argument('inputfiles', 
                         type=str, 
+                        nargs='+', 
                         help='path of rsml file'
     )
 
@@ -200,15 +208,22 @@ if __name__=='__main__':
 
     args = parser.parse_args()
 
+
+
+    print('rsml_parser with inputs : \n {} '.format(args))
+
     
     main(
-        args.inputfile,
+        *args.inputfiles,
         columns_to_drop = args.columns_to_drop,
         scale_factor = args.scale_factor,
         save_subfiles = args.save_subfiles,
         remove_fractional_frames = args.remove_fractional_frames,
         keep_last_point_data_only = args.keep_last_point_data_only
     )
+
+    print('end of parsing and conversion')
+
 
 
 
