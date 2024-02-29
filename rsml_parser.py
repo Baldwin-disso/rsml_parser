@@ -1,9 +1,11 @@
+# native packages
 from pathlib import Path
-import numpy as np
-import pandas as pd
 import itertools
 import xml.etree.ElementTree as ET
 import argparse
+# packages to install
+import numpy as np
+import pandas as pd
 
 
 ###### parsing
@@ -45,36 +47,44 @@ def add_prefix_except_column(df, prefix, column_to_exclude):
     dfout = df.rename(columns=names_map)
     return dfout
 
-def replace_single_element_list(cell):
+def replace_single_element_list(cell, keep_last_point_data_only= False):
     if isinstance(cell, list) and len(cell) == 1:
         return cell[0]
+    elif isinstance(cell, list) and keep_last_point_data_only:
+        return cell[-1] 
     else:
         return cell
 
-def unique_merge_per_column(df, column ='coord_t'):
+def unique_merge_per_column(df, column ='coord_t', keep_last_point_data_only=False):
     df = df.groupby(column).agg(lambda x: x.dropna().tolist()).reset_index()
-    df = df.applymap(replace_single_element_list) # remove bracket one liste contains one single element
+    df = df.applymap(lambda x: replace_single_element_list(x, keep_last_point_data_only=keep_last_point_data_only )) # remove bracket one liste contains one single element
     return df
 
 def merge_list_of_plantroot_dfs(dfs, column ='coord_t'):
     dfout = dfs[0]
-    for df in dfs[1:]:
+    for df in dfs[1:]: 
         dfout = pd.merge(dfout, df, on=column, how='outer')
         dfout = dfout.sort_values(by=column)
     return dfout
+
+
+def remove_fractional_frames_in_df(df,column='coord_t'):
+    return df[df[column].astype(int) == df[column]]
+
     
 ### compute length
-def compute_plantroot_len(df): 
+def compute_plantroot_len(df , scale_factor=1.0): 
     x =  df[['coord_x', 'coord_y']].to_numpy() # shape (len, 2)
     diffs = x[1:] - x[:-1] # compute differences
     diffs = np.concatenate((np.array([[0.,0.]]), diffs)) # add 0 a time 0
     distances = np.sum(diffs**2,axis=1)**0.5 # compute norm from differences
+    distances = distances * scale_factor
     cumulative_distances = distances.cumsum()
     return cumulative_distances
 
-def add_plantroot_len_column(df, column_name='cumuldist'):
-    cumulative= compute_plantroot_len(df)
-    df.insert(1, column_name, cumulative , True )
+def add_plantroot_len_column(df, column_name='cumuldist', scale_factor=1.0):
+    cumulative= compute_plantroot_len(df, scale_factor=scale_factor)
+    df.insert(7, column_name, cumulative , True )
     return df
 
 #### MAIN 
@@ -86,22 +96,36 @@ def main():
                         help='path of rsml file'
     )
 
-    parser.add_argument('--column-to-merge', 
-                        default='coord_t',
-                        type=str, 
-                        help='name of the column to merge between plantroot data frame'
-    )
+
     parser.add_argument('--columns-to-drop', 
-                        default=['diameter', 'vx', 'vy', 'coord_th', 'coord_x', 'coord_y'], # or ['diameter', 'vx', 'vy']
+                        default=['diameter', 'vx', 'vy', 'coord_x', 'coord_y'], # or ['diameter', 'vx', 'vy']
                         nargs='+',
                         type=str, 
                         help='name of the column to drop within each plantroot data frame'
+    )
+
+    parser.add_argument('--scale-factor', 
+                        default = 1.0,
+                        type=float,
+                        help='distance factor to multiply distance'
     )
 
     parser.add_argument('--save-subfiles', 
                         action='store_true',
                         help='option to store intermediate plantroot files'
     )
+    
+    parser.add_argument('--remove-fractional-frames', 
+                        action='store_true',
+                        help='remove lines where fractionnal point (non integer coord_t value)'
+    )
+
+    parser.add_argument('--keep-last-point-data-only', 
+                        action='store_true',
+                        help='for a given time frame, keep only last point data'
+    )
+
+
 
     args = parser.parse_args()
 
@@ -112,9 +136,13 @@ def main():
     subfiles_folder_path = Path(input_file_path.parent,input_file_path.stem)
 
     # manage options
-    column_merge = args.column_to_merge
+    column_merge = 'coord_t' # hardcoded
+    columns_kept_only_once = ['coord_th']
     columns_to_drop = args.columns_to_drop
     save_subfiles = args.save_subfiles
+    scale_factor = args.scale_factor
+    remove_fractional_frames = args.remove_fractional_frames
+    keep_last_point_data_only = args.keep_last_point_data_only
 
     # parse rsml
     root = parse_rsml(input_file_path)
@@ -126,13 +154,20 @@ def main():
     dfs = [pd.DataFrame(data[k]) for k in data]  
 
     # compute lenght for each data 
-    dfs = [add_plantroot_len_column(df) for df in dfs]
+    dfs = [add_plantroot_len_column(df, scale_factor=scale_factor) for df in dfs]
 
     # remove unecessary data from dataframes
+    
+    dfs = [dfs[0]] + [df.drop(columns = columns_kept_only_once ) for df in dfs[1:]] if len(dfs) > 1 else dfs
     dfs = [df.drop(columns = columns_to_drop ) for df in dfs] 
-
+    
+    
     # gather data per time
-    dfs = [unique_merge_per_column(df) for df in dfs]
+    dfs = [unique_merge_per_column(df, keep_last_point_data_only= keep_last_point_data_only) for df in dfs]
+
+    # remove fractional frames if necessary
+    if remove_fractional_frames:
+        dfs = [remove_fractional_frames_in_df(df) for df in dfs]
 
     # add prefix to columns
     dfs = [add_prefix_except_column(df, k + ' ', column_to_exclude= column_merge ) for (df,k) in zip(dfs,data) ]
@@ -149,6 +184,7 @@ def main():
     # save to files
     df.to_csv(output_file_path,index=False)
 
+    import pdb; pdb.set_trace()
     if save_subfiles: 
         subfiles_folder_path.mkdir(exist_ok=True, parents=True)
 
