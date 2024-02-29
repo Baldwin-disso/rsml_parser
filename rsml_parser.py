@@ -51,8 +51,6 @@ def replace_single_element_list(cell):
     else:
         return cell
 
-
-
 def add_prefix_except_column(df, prefix, column_to_exclude):
     names_map = { n : prefix  + n  for n in  df.columns if n != column_to_exclude }
     dfout = df.rename(columns=names_map)
@@ -164,13 +162,11 @@ def main():
         subfiles_folder_path.mkdir(exist_ok=True, parents=True)
         subnames = [k.replace('.','_') for k in data.keys()] # replace dot per underscores
         for (k, sdf) in zip(subnames, dfs):
-            #import pdb; pdb.set_trace()
+            
             subfile_path =  Path(subfiles_folder_path, k + '.csv')
             sdf.to_csv(subfile_path, index=False)
 
-
-
-    import pdb; pdb.set_trace()
+    print('end of parsing and conversion')
 
 
 if __name__=='__main__':
