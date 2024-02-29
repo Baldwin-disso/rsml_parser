@@ -1,9 +1,7 @@
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import csv
 import itertools
-import os
 import xml.etree.ElementTree as ET
 import argparse
 
@@ -12,7 +10,6 @@ import argparse
 def parse_rsml(rsml_path):
     tree = ET.parse(rsml_path)
     root = tree.getroot()
-    # then root[0][0].tag .attrib or .text
     return root
 
 #### dictionnary creation from xml data
@@ -41,9 +38,12 @@ def extract_plantroots_data_from_rootnode(root):
         results.update(res)
     return results
 
-
-
 #### dataframe creation
+
+def add_prefix_except_column(df, prefix, column_to_exclude):
+    names_map = { n : prefix  + n  for n in  df.columns if n != column_to_exclude }
+    dfout = df.rename(columns=names_map)
+    return dfout
 
 def replace_single_element_list(cell):
     if isinstance(cell, list) and len(cell) == 1:
@@ -51,20 +51,10 @@ def replace_single_element_list(cell):
     else:
         return cell
 
-def add_prefix_except_column(df, prefix, column_to_exclude):
-    names_map = { n : prefix  + n  for n in  df.columns if n != column_to_exclude }
-    dfout = df.rename(columns=names_map)
-    return dfout
-
 def unique_merge_per_column(df, column ='coord_t'):
     df = df.groupby(column).agg(lambda x: x.dropna().tolist()).reset_index()
     df = df.applymap(replace_single_element_list) # remove bracket one liste contains one single element
     return df
-
-def merge_two_plantroot_dfs(df1,df2, column = 'coord_t'):
-    # Fusion des dataframes sur la colonne 'time' en utilisant une union
-    merged_df = pd.merge(df1, df2, on=column, how='outer')
-    return merged_df
 
 def merge_list_of_plantroot_dfs(dfs, column ='coord_t'):
     dfout = dfs[0]
@@ -83,10 +73,9 @@ def compute_plantroot_len(df):
     return cumulative_distances
 
 def add_plantroot_len_column(df, column_name='cumuldist'):
-    cum = compute_plantroot_len(df)
-    df.insert(1, column_name, cum , True )
+    cumulative= compute_plantroot_len(df)
+    df.insert(1, column_name, cumulative , True )
     return df
-
 
 #### MAIN 
 def main():
@@ -131,35 +120,44 @@ def main():
     root = parse_rsml(input_file_path)
 
     # intialise result dictionnary
-
     data = extract_plantroots_data_from_rootnode(root)
-    #times = extract_ordered_times_frames(data)
 
     # create dataframes from data dict
     dfs = [pd.DataFrame(data[k]) for k in data]  
 
-
     # compute lenght for each data 
-    dfs = [ add_plantroot_len_column(df) for df in dfs ]
+    dfs = [add_plantroot_len_column(df) for df in dfs]
 
     # remove unecessary data from dataframes
-    dfs = [ df.drop(columns = columns_to_drop )  for df in dfs ] 
-
+    dfs = [df.drop(columns = columns_to_drop ) for df in dfs] 
 
     # gather data per time
-    dfs = [ unique_merge_per_column(df) for df in dfs]
+    dfs = [unique_merge_per_column(df) for df in dfs]
 
     # add prefix to columns
-    dfs = [add_prefix_except_column(df,k + ' ', column_to_exclude= column_merge ) for (df,k) in zip(dfs,data) ]
+    dfs = [add_prefix_except_column(df, k + ' ', column_to_exclude= column_merge ) for (df,k) in zip(dfs,data) ]
+
+    # gather subroots of plantroot 1 and 2
+    dfs1 =  [ dfs[i] for (i,k) in enumerate(data.keys()) if k.startswith('1')  ]
+    dfs2 =  [ dfs[i] for (i,k) in enumerate(data.keys()) if k.startswith('2')  ]
 
     # merge dfs     
+    df1 = merge_list_of_plantroot_dfs(dfs1, column = column_merge)
+    df2 = merge_list_of_plantroot_dfs(dfs2, column = column_merge)
     df = merge_list_of_plantroot_dfs(dfs, column = column_merge)
 
-    # save to file
+    # save to files
     df.to_csv(output_file_path,index=False)
 
     if save_subfiles: 
         subfiles_folder_path.mkdir(exist_ok=True, parents=True)
+
+        # save plantroot 1 and 2
+        df1.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1.csv'), index=False)
+        df2.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2.csv'), index=False)
+
+
+        # all root subfiles
         subnames = [k.replace('.','_') for k in data.keys()] # replace dot per underscores
         for (k, sdf) in zip(subnames, dfs):
             
