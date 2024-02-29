@@ -88,61 +88,20 @@ def add_plantroot_len_column(df, column_name='cumuldist', scale_factor=1.0):
     return df
 
 #### MAIN 
-def main():
-    #parsing
-    parser = argparse.ArgumentParser(description='rsml parser and converter')
-    parser.add_argument('inputfile', 
-                        type=str, 
-                        help='path of rsml file'
-    )
-
-
-    parser.add_argument('--columns-to-drop', 
-                        default=['diameter', 'vx', 'vy', 'coord_x', 'coord_y'], # or ['diameter', 'vx', 'vy']
-                        nargs='+',
-                        type=str, 
-                        help='name of the column to drop within each plantroot data frame'
-    )
-
-    parser.add_argument('--scale-factor', 
-                        default = 1.0,
-                        type=float,
-                        help='distance factor to multiply distance'
-    )
-
-    parser.add_argument('--save-subfiles', 
-                        action='store_true',
-                        help='option to store intermediate plantroot files'
-    )
-    
-    parser.add_argument('--remove-fractional-frames', 
-                        action='store_true',
-                        help='remove lines where fractionnal point (non integer coord_t value)'
-    )
-
-    parser.add_argument('--keep-last-point-data-only', 
-                        action='store_true',
-                        help='for a given time frame, keep only last point data'
-    )
-
-
-
-    args = parser.parse_args()
-
-
+def main(*args, **kwargs):   
     # manage path
-    input_file_path = Path(args.inputfile)
+    input_file_path = Path(args[0])
     output_file_path = input_file_path.with_suffix('.csv')
     subfiles_folder_path = Path(input_file_path.parent,input_file_path.stem)
 
     # manage options
     column_merge = 'coord_t' # hardcoded
     columns_kept_only_once = ['coord_th']
-    columns_to_drop = args.columns_to_drop
-    save_subfiles = args.save_subfiles
-    scale_factor = args.scale_factor
-    remove_fractional_frames = args.remove_fractional_frames
-    keep_last_point_data_only = args.keep_last_point_data_only
+    columns_to_drop = kwargs['columns_to_drop']
+    save_subfiles = kwargs['save_subfiles']
+    scale_factor = kwargs['scale_factor']
+    remove_fractional_frames = kwargs['remove_fractional_frames']
+    keep_last_point_data_only = kwargs['keep_last_point_data_only']
 
     # parse rsml
     root = parse_rsml(input_file_path)
@@ -184,7 +143,7 @@ def main():
     # save to files
     df.to_csv(output_file_path,index=False)
 
-    import pdb; pdb.set_trace()
+    
     if save_subfiles: 
         subfiles_folder_path.mkdir(exist_ok=True, parents=True)
 
@@ -204,6 +163,52 @@ def main():
 
 
 if __name__=='__main__':
-    main()
+    #parsing
+    parser = argparse.ArgumentParser(description='rsml parser and converter')
+    parser.add_argument('inputfile', 
+                        type=str, 
+                        help='path of rsml file'
+    )
+
+    parser.add_argument('--columns-to-drop', 
+                        default=['diameter', 'vx', 'vy', 'coord_x', 'coord_y'], # or ['diameter', 'vx', 'vy']
+                        nargs='+',
+                        type=str, 
+                        help='name of the column to drop within each plantroot data frame'
+    )
+
+    parser.add_argument('--scale-factor', 
+                        default = 1.0,
+                        type=float,
+                        help='distance factor to multiply distance'
+    )
+
+    parser.add_argument('--save-subfiles', 
+                        action='store_true',
+                        help='option to store intermediate plantroot files'
+    )
+    
+    parser.add_argument('--remove-fractional-frames', 
+                        action='store_true',
+                        help='remove lines where fractionnal point (non integer coord_t value)'
+    )
+
+    parser.add_argument('--keep-last-point-data-only', 
+                        action='store_true',
+                        help='for a given time frame, keep only last point data'
+    )
+
+    args = parser.parse_args()
+
+    
+    main(
+        args.inputfile,
+        columns_to_drop = args.columns_to_drop,
+        scale_factor = args.scale_factor,
+        save_subfiles = args.save_subfiles,
+        remove_fractional_frames = args.remove_fractional_frames,
+        keep_last_point_data_only = args.keep_last_point_data_only
+    )
+
 
 
