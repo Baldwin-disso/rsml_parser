@@ -5,14 +5,8 @@ import csv
 import itertools
 import os
 import xml.etree.ElementTree as ET
+import argparse
 
-"""
-tree = ET.parse('p04.rsml')
-root = tree.getroot()
-for child in root:
-    for childchild in child:
-        print(childchild.tag, childchild.attrib, childchild.text)
-"""
 
 ###### parsing
 def parse_rsml(rsml_path):
@@ -50,13 +44,6 @@ def extract_plantroots_data_from_rootnode(root):
 
 
 #### dataframe creation
-"""
-def extract_ordered_times_frames(data, frame_name = 'coord_t'):
-    times = list(itertools.chain(*[ data[k][frame_name]  for k in data.keys() ]))
-    times = np.unique(np.array(times))
-
-    return times
-"""
 
 def replace_single_element_list(cell):
     if isinstance(cell, list) and len(cell) == 1:
@@ -103,53 +90,90 @@ def add_plantroot_len_column(df, column_name='cumuldist'):
     return df
 
 
-
-
-
-
 #### MAIN 
+def main():
+    #parsing
+    parser = argparse.ArgumentParser(description='rsml parser and converter')
+    parser.add_argument('inputfile', 
+                        type=str, 
+                        help='path of rsml file'
+    )
+
+    parser.add_argument('--column-to-merge', 
+                        default='coord_t',
+                        type=str, 
+                        help='name of the column to merge between plantroot data frame'
+    )
+    parser.add_argument('--columns-to-drop', 
+                        default=['diameter', 'vx', 'vy', 'coord_th', 'coord_x', 'coord_y'], # or ['diameter', 'vx', 'vy']
+                        nargs='+',
+                        type=str, 
+                        help='name of the column to drop within each plantroot data frame'
+    )
+
+    parser.add_argument('--save-subfiles', 
+                        action='store_true',
+                        help='option to store intermediate plantroot files'
+    )
+
+    args = parser.parse_args()
 
 
-input_file_path = Path('p04.rsml')
-output_file_path = input_file_path.with_suffix('.csv')
-column_merge = 'coord_t'
-#columns_to_drop = ['diameter', 'vx', 'vy']
-columns_to_drop = ['diameter', 'vx', 'vy', 'coord_th', 'coord_x', 'coord_y']
+    # manage path
+    input_file_path = Path(args.inputfile)
+    output_file_path = input_file_path.with_suffix('.csv')
+    subfiles_folder_path = Path(input_file_path.parent,input_file_path.stem)
 
-# parse rsml
-root = parse_rsml(input_file_path)
+    # manage options
+    column_merge = args.column_to_merge
+    columns_to_drop = args.columns_to_drop
+    save_subfiles = args.save_subfiles
 
-# intialise result dictionnary
+    # parse rsml
+    root = parse_rsml(input_file_path)
 
-data = extract_plantroots_data_from_rootnode(root)
-#times = extract_ordered_times_frames(data)
+    # intialise result dictionnary
 
-# create dataframes from data dict
-dfs = [pd.DataFrame(data[k]) for k in data]  
+    data = extract_plantroots_data_from_rootnode(root)
+    #times = extract_ordered_times_frames(data)
 
-
-# compute lenght for each data 
-dfs = [ add_plantroot_len_column(df) for df in dfs ]
-
-# remove unecessary data from dataframes
-dfs = [ df.drop(columns = columns_to_drop )  for df in dfs ] 
+    # create dataframes from data dict
+    dfs = [pd.DataFrame(data[k]) for k in data]  
 
 
-# gather data per time
-dfs = [ unique_merge_per_column(df) for df in dfs]
+    # compute lenght for each data 
+    dfs = [ add_plantroot_len_column(df) for df in dfs ]
 
-# add prefix to columns
-dfs = [add_prefix_except_column(df,k + ' ', column_to_exclude= column_merge ) for (df,k) in zip(dfs,data) ]
-
-# merge dfs     
-df = merge_list_of_plantroot_dfs(dfs, column = column_merge)
+    # remove unecessary data from dataframes
+    dfs = [ df.drop(columns = columns_to_drop )  for df in dfs ] 
 
 
-df.to_csv('test.csv',index=False)
+    # gather data per time
+    dfs = [ unique_merge_per_column(df) for df in dfs]
+
+    # add prefix to columns
+    dfs = [add_prefix_except_column(df,k + ' ', column_to_exclude= column_merge ) for (df,k) in zip(dfs,data) ]
+
+    # merge dfs     
+    df = merge_list_of_plantroot_dfs(dfs, column = column_merge)
+
+    # save to file
+    df.to_csv(output_file_path,index=False)
+
+    if save_subfiles: 
+        subfiles_folder_path.mkdir(exist_ok=True, parents=True)
+        subnames = [k.replace('.','_') for k in data.keys()] # replace dot per underscores
+        for (k, sdf) in zip(subnames, dfs):
+            #import pdb; pdb.set_trace()
+            subfile_path =  Path(subfiles_folder_path, k + '.csv')
+            sdf.to_csv(subfile_path, index=False)
 
 
-# retrieve roots 
 
-import pdb; pdb.set_trace()
+    import pdb; pdb.set_trace()
+
+
+if __name__=='__main__':
+    main()
 
 
