@@ -71,10 +71,9 @@ def merge_list_of_plantroot_dfs(dfs, column ='coord_t'):
 def remove_fractional_frames_in_df(df,column='coord_t'):
     return df[df[column].astype(int) == df[column]]
 
-    
-### compute length
-def compute_plantroot_len(df , scale_factor=1.0): 
-    x =  df[['coord_x', 'coord_y']].to_numpy() # shape (len, 2)
+##### Compute section numpy thingy
+# compute length
+def compute_plantroot_len(x , scale_factor=1.0):    
     diffs = x[1:] - x[:-1] # compute differences
     diffs = np.concatenate((np.array([[0.,0.]]), diffs)) # add 0 a time 0
     distances = np.sum(diffs**2,axis=1)**0.5 # compute norm from differences
@@ -82,10 +81,92 @@ def compute_plantroot_len(df , scale_factor=1.0):
     cumulative_distances = distances.cumsum()
     return cumulative_distances
 
-def add_plantroot_len_column(df, column_name='cumuldist', scale_factor=1.0):
-    cumulative= compute_plantroot_len(df, scale_factor=scale_factor)
-    df.insert(7, column_name, cumulative , True )
-    return df
+# compute tortuosity
+
+def compute_plantroot_tortuosity(x):
+    # x is N times 2 ( coord_x, coord_y) 
+    cumulative_distances = compute_plantroot_len(x , scale_factor=1.0)
+    straight_diffs = x - x[0]
+    straight_distances = np.sum(straight_diffs**2,axis=1)**0.5
+    mask = straight_distances == 0
+    tortuosities = cumulative_distances/ np.where(mask, 1, straight_distances)
+    return tortuosities
+
+
+# compute cumulative dist until last root junction
+def compute_mainplantroot_len_until_last_junction_at_time(t, main_df, lat_dfs, scale_factor=1.0):
+    # retrieve times and coordinates of the first point of each lateral root 
+
+    main_points  = main_df.iloc[:, main_df.columns.isin(['coord_t', 'coord_x', 'coord_y']) ].to_numpy()
+    lat_first_points = np.array([
+        df.iloc[0, df.columns.isin(['coord_t', 'coord_x', 'coord_y']) ].to_numpy() 
+        for df in lat_dfs  
+    ])
+
+    
+    ## 1 filter lateral roots that appears before time t
+    ## and keep points from main root that also appear before time t
+    lat_first_points = np.array([x for x in lat_first_points if x[0] <= t  ])
+    main_points = np.array([x for x in main_points if x[0] <= t  ])
+    # case where no lateral root exist at that time
+    if lat_first_points.size == 0: 
+        return 0,0
+    # compute number of laterals roots at time t
+    nb_lats_at_t = lat_first_points.shape[0]
+    
+    
+    ## 2 get the last lateral root to consider :
+    # sort lateral root by time
+    indices = np.argsort(lat_first_points[:, 0], kind='mergesort')[::-1] # STABLE sort with descending order
+    lat_first_points = lat_first_points[indices]
+    #filter to  the most recent lateral roots only
+    lat_first_points = np.array([ x for x in lat_first_points if x[0]==lat_first_points[0,0] ])
+
+    ## 3 if several are found, retrieve the deepest (higher y value)
+    indices = np.argsort(lat_first_points[:, 2], kind='mergesort')[::-1] # STABLE sort with descending order
+    lat_first_points = lat_first_points[::-1]
+
+    focus_lat_point = lat_first_points[0]
+   
+
+    ## 4 find the 2 closest point in main root, take the first one 
+    # compute norm between focus point from lateral root to every point of primary root
+    d = np.linalg.norm(main_points[:,1:] - focus_lat_point[1:], axis=1) 
+    # compute points with the two smallest distances
+    smallest_d_indices = np.argsort(d)[:2]
+    # sort the indices in order to take the first one that appeared in main
+    smallest_d_indices  = np.sort(smallest_d_indices)
+    selected_index = smallest_d_indices[0]
+
+    ## truncate main root up to the selected index (included), and compute len
+    main_points = main_points[:selected_index+1]
+    truncated_len = (
+        compute_plantroot_len(main_points[:,1:],scale_factor=scale_factor)[-1] 
+        + d[selected_index]*scale_factor
+    )
+    
+
+    return truncated_len, nb_lats_at_t
+    
+
+def compute_mainplantroot_len_until_last_junction(main_df, lat_dfs, scale_factor=1.0):
+    # retrieve time frames and loop on them
+    main_times = main_df.loc[:, 'coord_t'].to_numpy()
+    
+    len_until_junction = []
+    nb_lateral_plantroot = []
+    for t in main_times: # loop over the times of main root data
+        l, n = compute_mainplantroot_len_until_last_junction_at_time(
+            t,
+            main_df,
+            lat_dfs,
+            scale_factor=scale_factor
+        )
+        len_until_junction.append(l)
+        nb_lateral_plantroot.append(n)
+
+    return len_until_junction, nb_lateral_plantroot
+
 
 
 
@@ -105,6 +186,9 @@ def _main(input_file_path, **kwargs):
     scale_factor = kwargs['scale_factor']
     remove_fractional_frames = kwargs['remove_fractional_frames']
     keep_last_point_data_only = kwargs['keep_last_point_data_only']
+    
+    # fixed column names 
+    COLUMNS = ['cumuldist', 'tortuosity', 'cumuldistjunction', 'nblaterals']
 
     # parse rsml
     root = parse_rsml(input_file_path)
@@ -113,35 +197,72 @@ def _main(input_file_path, **kwargs):
     data = extract_plantroots_data_from_rootnode(root)
 
     # create dataframes from data dict
-    dfs = [pd.DataFrame(data[k]) for k in data]  
+    dfs = { k:pd.DataFrame(data[k]) for k in data}  
 
+
+    ## ALL kind of computation HERE
     # compute lenght for each data 
-    dfs = [add_plantroot_len_column(df, scale_factor=scale_factor) for df in dfs]
 
-    # remove unecessary data from dataframes
+    # computation made independantly on each df
+    for k in dfs :
+        df = dfs[k]
+        x = df[['coord_x', 'coord_y']].to_numpy()
+        cumuldist = compute_plantroot_len(x, scale_factor=scale_factor)
+        tortuosity = compute_plantroot_tortuosity(x)
+        df.insert(7, COLUMNS[0], cumuldist , True )
+        df.insert(8, COLUMNS[1], tortuosity , True )
+
+
     
-    dfs = [dfs[0]] + [df.drop(columns = columns_kept_only_once ) for df in dfs[1:]] if len(dfs) > 1 else dfs
-    dfs = [df.drop(columns = columns_to_drop ) for df in dfs] 
+    # compute len until last junction
+    main_df1 =  dfs['1.1'] 
+    main_df2 = dfs['2.1']
+    lat_dfs1 = [ dfs[k] for k in dfs if k.startswith('1') and k!='1.1']
+    lat_dfs2 = [ dfs[k] for k in dfs if k.startswith('2') and k!='2.1' ]
+    luj1, nb_lat1 = compute_mainplantroot_len_until_last_junction(
+        main_df1, 
+        lat_dfs1, 
+        scale_factor=scale_factor
+    )
+    luj2, nb_lat2 = compute_mainplantroot_len_until_last_junction(
+        main_df2,
+        lat_dfs2, 
+        scale_factor=scale_factor
+        )
+    
+    main_df1.insert(7, COLUMNS[2], luj1 , True )
+    main_df1.insert(8, COLUMNS[3], nb_lat1 , True )
+    main_df2.insert(7, COLUMNS[2], luj2 , True )
+    main_df2.insert(8, COLUMNS[3], nb_lat2 , True )
+
+    dfs.update({'1.1':main_df1, '2.1':main_df2 })
+
+
+    
+    ## Now end of column computation : 
+    # remove unecessary data from dataframes
+    dfs.update( {k:dfs[k].drop(columns = columns_kept_only_once ) for k in list(dfs.keys())[1:]} )
+    dfs = { k:dfs[k].drop(columns = columns_to_drop ) for k in dfs }
     
     
     # gather data per time
-    dfs = [unique_merge_per_column(df, keep_last_point_data_only= keep_last_point_data_only) for df in dfs]
+    dfs = {k:unique_merge_per_column(dfs[k], keep_last_point_data_only= keep_last_point_data_only) for k in dfs}
 
     # remove fractional frames if necessary
     if remove_fractional_frames:
-        dfs = [remove_fractional_frames_in_df(df) for df in dfs]
+        dfs = {k:remove_fractional_frames_in_df(dfs[k]) for k in dfs}
 
     # add prefix to columns
-    dfs = [add_prefix_except_column(df, k + ' ', column_to_exclude= column_merge ) for (df,k) in zip(dfs,data) ]
+    dfs = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in dfs }
 
     # gather subroots of plantroot 1 and 2
-    dfs1 =  [ dfs[i] for (i,k) in enumerate(data.keys()) if k.startswith('1')  ]
-    dfs2 =  [ dfs[i] for (i,k) in enumerate(data.keys()) if k.startswith('2')  ]
+    dfs1 =  {k:dfs[k] for k in dfs if k.startswith('1')  }
+    dfs2 =  {k:dfs[k] for k in dfs if k.startswith('2')  }
 
     # merge dfs     
-    df1 = merge_list_of_plantroot_dfs(dfs1, column = column_merge)
-    df2 = merge_list_of_plantroot_dfs(dfs2, column = column_merge)
-    df = merge_list_of_plantroot_dfs(dfs, column = column_merge)
+    df1 = merge_list_of_plantroot_dfs(list(dfs1.values()), column = column_merge)
+    df2 = merge_list_of_plantroot_dfs(list(dfs2.values()), column = column_merge)
+    df = merge_list_of_plantroot_dfs(list(dfs.values()), column = column_merge)
 
     # save to files
     df.to_csv(output_file_path,index=False)
