@@ -276,12 +276,9 @@ def _main(input_file_path, **kwargs):
         df2.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2.csv'), index=False)
 
 
-        # all root subfiles
-        subnames = [k.replace('.','_') for k in data.keys()] # replace dot per underscores
-        for (k, sdf) in zip(subnames, dfs):
-            
-            subfile_path =  Path(subfiles_folder_path, k + '.csv')
-            sdf.to_csv(subfile_path, index=False)
+        for k in dfs:
+            subfile_path =  Path(subfiles_folder_path, k.replace('.','_') + '.csv')
+            dfs[k].to_csv(subfile_path, index=False)
 
 
 def main(*args, **kwargs):
