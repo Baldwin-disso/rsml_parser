@@ -94,10 +94,14 @@ def compute_plantroot_tortuosity(x):
 
 
 # compute cumulative dist until last root junction
-def compute_mainplantroot_len_until_last_junction_at_time(t, main_df, lat_dfs, scale_factor=1.0):
-    # retrieve times and coordinates of the first point of each lateral root 
+def compute_mainplantroot_len_until_last_junction_at_frame(f, main_df, lat_dfs, scale_factor=1.0): 
 
-    main_points  = main_df.iloc[:, main_df.columns.isin(['coord_t', 'coord_x', 'coord_y']) ].to_numpy()
+    # retrieve times and coordinates up to current frame
+    main_points  = main_df.iloc[:f+1, main_df.columns.isin(['coord_t', 'coord_x', 'coord_y']) ].to_numpy()
+    t = main_points[f,0].item() # retrieve current time (the one of last frame)
+    
+
+    depth = main_points[f,2].item() # retrieve current depth
     lat_first_points = np.array([
         df.iloc[0, df.columns.isin(['coord_t', 'coord_x', 'coord_y']) ].to_numpy() 
         for df in lat_dfs  
@@ -105,59 +109,50 @@ def compute_mainplantroot_len_until_last_junction_at_time(t, main_df, lat_dfs, s
 
     
     ## 1 filter lateral roots that appears before time t
-    ## and keep points from main root that also appear before time t
-    lat_first_points = np.array([x for x in lat_first_points if x[0] <= t  ])
+    ## and keep points from main root that also appear before time t 
+    lat_first_points = np.array([x for x in lat_first_points if x[0] <= t])
     main_points = np.array([x for x in main_points if x[0] <= t  ])
     # case where no lateral root exist at that time
     if lat_first_points.size == 0: 
         return 0,0
-    # compute number of laterals roots at time t
-    nb_lats_at_t = lat_first_points.shape[0]
+    
+    # compute number of laterals roots at frame f
+    nb_lats_at_f = lat_first_points.shape[0]
     
     
-    ## 2 get the last lateral root to consider :
-    # sort lateral root by time
-    indices = np.argsort(lat_first_points[:, 0], kind='mergesort')[::-1] # STABLE sort with descending order
-    lat_first_points = lat_first_points[indices]
-    #filter to  the most recent lateral roots only
-    lat_first_points = np.array([ x for x in lat_first_points if x[0]==lat_first_points[0,0] ])
-
-    ## 3 if several are found, retrieve the deepest (higher y value)
-    indices = np.argsort(lat_first_points[:, 2], kind='mergesort')[::-1] # STABLE sort with descending order
-    lat_first_points = lat_first_points[::-1]
-
-    focus_lat_point = lat_first_points[0]
+    ## 2 get the deepest lateral root to consider :
+    # sort lateral root by depths
+    
+    indices = np.argsort(lat_first_points[:, 2], kind='mergesort')[::-1] # STABLE sort with descending order along with coord_y (2)
+    focus_lat_point = lat_first_points[indices[0]] # consider deepest, this is the one where one should focus
    
 
-    ## 4 find the 2 closest point in main root, take the first one 
-    # compute norm between focus point from lateral root to every point of primary root
-    d = np.linalg.norm(main_points[:,1:] - focus_lat_point[1:], axis=1) 
-    # compute points with the two smallest distances
-    smallest_d_indices = np.argsort(d)[:2]
-    # sort the indices in order to take the first one that appeared in main
-    smallest_d_indices  = np.sort(smallest_d_indices)
-    selected_index = smallest_d_indices[0]
+    ## 3 find the 2 closest point in main root, take the first one 
+    relative_depths_to_focus =  main_points[:,2] -  focus_lat_point[2] # positive are main root plant node deeper than junction 
+    neg_rel_depths = relative_depths_to_focus[relative_depths_to_focus < 0] # filter only negatif relative depths
+    max_neg_rel_depths = neg_rel_depths.max() # keep max of negative (first before junction)
+    selected_index = np.where(relative_depths_to_focus == max_neg_rel_depths)[0][0] # get index of it
 
     ## truncate main root up to the selected index (included), and compute len
     main_points = main_points[:selected_index+1]
+
     truncated_len = (
         compute_plantroot_len(main_points[:,1:],scale_factor=scale_factor)[-1] 
-        + d[selected_index]*scale_factor
+        +  np.linalg.norm(focus_lat_point[1:] - main_points[-1,1:] )*scale_factor
     )
     
-
-    return truncated_len, nb_lats_at_t
+    return truncated_len, nb_lats_at_f
     
 
 def compute_mainplantroot_len_until_last_junction(main_df, lat_dfs, scale_factor=1.0):
     # retrieve time frames and loop on them
-    main_times = main_df.loc[:, 'coord_t'].to_numpy()
-    
+    main_nb_frames = len(main_df)
+
     len_until_junction = []
     nb_lateral_plantroot = []
-    for t in main_times: # loop over the times of main root data
-        l, n = compute_mainplantroot_len_until_last_junction_at_time(
-            t,
+    for f in range(main_nb_frames): # loop over the times of main root data
+        l, n = compute_mainplantroot_len_until_last_junction_at_frame(
+            f,
             main_df,
             lat_dfs,
             scale_factor=scale_factor
@@ -236,6 +231,7 @@ def _main(input_file_path, **kwargs):
     main_df2.insert(8, COLUMNS[3], nb_lat2 , True )
 
     dfs.update({'1.1':main_df1, '2.1':main_df2 })
+    #import pdb; pdb.set_trace()
 
 
     
@@ -263,6 +259,7 @@ def _main(input_file_path, **kwargs):
     df1 = merge_list_of_plantroot_dfs(list(dfs1.values()), column = column_merge)
     df2 = merge_list_of_plantroot_dfs(list(dfs2.values()), column = column_merge)
     df = merge_list_of_plantroot_dfs(list(dfs.values()), column = column_merge)
+
 
     # save to files
     df.to_csv(output_file_path,index=False)
