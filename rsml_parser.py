@@ -61,9 +61,10 @@ def unique_merge_per_column(df, column ='coord_t', keep_last_point_data_only=Fal
     return df
 
 def merge_list_of_plantroot_dfs(dfs, column ='coord_t'):
-    dfout = dfs[0]
+    dfout = dfs[0].copy()
     for df in dfs[1:]: 
         dfout = pd.merge(dfout, df, on=column, how='outer')
+        #qprint(f"dfout shape : {dfout.shape} ; df shape : {df.shape} " )
         dfout = dfout.sort_values(by=column)
     return dfout
 
@@ -94,10 +95,10 @@ def compute_plantroot_tortuosity(x):
 
 
 # compute cumulative dist until last root junction
-def compute_mainplantroot_len_until_last_junction_at_frame(f, main_df, lat_dfs, scale_factor=1.0): 
+def compute_mainplantroot_len_until_last_junction_at_frame(f, mdf, lat_dfs, scale_factor=1.0): 
 
     # retrieve times and coordinates up to current frame
-    main_points  = main_df.iloc[:f+1, main_df.columns.isin(['coord_t', 'coord_x', 'coord_y']) ].to_numpy()
+    main_points  = mdf.iloc[:f+1, mdf.columns.isin(['coord_t', 'coord_x', 'coord_y']) ].to_numpy()
     t = main_points[f,0].item() # retrieve current time (the one of last frame)
     
 
@@ -144,16 +145,16 @@ def compute_mainplantroot_len_until_last_junction_at_frame(f, main_df, lat_dfs, 
     return truncated_len, nb_lats_at_f
     
 
-def compute_mainplantroot_len_until_last_junction(main_df, lat_dfs, scale_factor=1.0):
+def compute_mainplantroot_len_until_last_junction(mdf, lat_dfs, scale_factor=1.0):
     # retrieve time frames and loop on them
-    main_nb_frames = len(main_df)
+    main_nb_frames = len(mdf)
 
     len_until_junction = []
     nb_lateral_plantroot = []
     for f in range(main_nb_frames): # loop over the times of main root data
         l, n = compute_mainplantroot_len_until_last_junction_at_frame(
             f,
-            main_df,
+            mdf,
             lat_dfs,
             scale_factor=scale_factor
         )
@@ -164,6 +165,40 @@ def compute_mainplantroot_len_until_last_junction(main_df, lat_dfs, scale_factor
 
 
 
+def gather_dataframes_for_sections(mdf, lat_dfs):
+    """
+        gather data across 3 section,
+        dividing main df into 3 main dfs and 
+        gathering lateral roots to each of the 3 according to :
+        - section 1 : Time 0 and before last lateral at that time
+        - section 2 : from section 1 to end at time 0
+        - section 3 : sctrictly after time 0  
+    """
+
+    # find cut values
+    cut12 =  max(mdf.iloc[0]['coord_y'] for mdf in lat_dfs if mdf.iloc[0]['coord_t'] <= 1) if lat_dfs else None
+    cut23 =  mdf[mdf['coord_t'] == 0]['coord_y'].max()
+    print(f'cut values for sections : {cut12} and {cut23}')
+
+    # splitting main df in 3 section ?
+    mdf1 =  (mdf[ mdf['coord_y'] <= cut12 ]).copy()
+    #import pdb; pdb.set_trace()
+    mdf2 = (mdf[(mdf['coord_y'] > cut12)  & (mdf['coord_y'] <= cut23)  ]).copy()
+    mdf3 = (mdf[ mdf['coord_y'] > cut12 ]).copy()
+
+    # splitting lateral roots in 3 packages
+    lat_dfs1 = []
+    lat_dfs2 = []
+    lat_dfs3 = []
+    for df in lat_dfs:
+        if not df.empty and df.iloc[0]['coord_y'] <= cut12:
+            lat_dfs1.append(df.copy())
+        elif not df.empty and df.iloc[0]['coord_y'] > cut12 and  df.iloc[0]['coord_y'] < cut23:
+            lat_dfs2.append(df.copy())
+        else:
+            lat_dfs3.append(df.copy())
+
+    return mdf1, lat_dfs1, mdf2, lat_dfs2, mdf3, lat_dfs3
 
 #### MAIN 
 def _main(input_file_path, **kwargs):   
@@ -180,7 +215,7 @@ def _main(input_file_path, **kwargs):
     save_subfiles = kwargs['save_subfiles']
     scale_factor = kwargs['scale_factor']
     remove_fractional_frames = kwargs['remove_fractional_frames']
-    keep_last_point_data_only = kwargs['keep_last_point_data_only']
+    use_sections = kwargs['use_sections']
     
     # fixed column names 
     COLUMNS = ['cumuldist', 'tortuosity', 'cumuldistjunction', 'nblaterals']
@@ -210,55 +245,95 @@ def _main(input_file_path, **kwargs):
 
     
     # compute len until last junction
-    main_df1 =  dfs['1.1'] 
-    main_df2 = dfs['2.1']
+    mdf1 =  dfs['1.1'] 
+    mdf2 = dfs['2.1']
     lat_dfs1 = [ dfs[k] for k in dfs if k.startswith('1') and k!='1.1']
     lat_dfs2 = [ dfs[k] for k in dfs if k.startswith('2') and k!='2.1' ]
     luj1, nb_lat1 = compute_mainplantroot_len_until_last_junction(
-        main_df1, 
+        mdf1, 
         lat_dfs1, 
         scale_factor=scale_factor
     )
     luj2, nb_lat2 = compute_mainplantroot_len_until_last_junction(
-        main_df2,
+        mdf2,
         lat_dfs2, 
         scale_factor=scale_factor
         )
     
-    main_df1.insert(7, COLUMNS[2], luj1 , True )
-    main_df1.insert(8, COLUMNS[3], nb_lat1 , True )
-    main_df2.insert(7, COLUMNS[2], luj2 , True )
-    main_df2.insert(8, COLUMNS[3], nb_lat2 , True )
+    mdf1.insert(7, COLUMNS[2], luj1 , True )
+    mdf1.insert(8, COLUMNS[3], nb_lat1 , True )
+    mdf2.insert(7, COLUMNS[2], luj2 , True )
+    mdf2.insert(8, COLUMNS[3], nb_lat2 , True )
 
-    dfs.update({'1.1':main_df1, '2.1':main_df2 })
+    dfs.update({'1.1':mdf1, '2.1':mdf2 })
     #import pdb; pdb.set_trace()
 
 
     
-    ## Now end of column computation : 
-    # remove unecessary data from dataframes
-    dfs.update( {k:dfs[k].drop(columns = columns_kept_only_once ) for k in list(dfs.keys())[1:]} )
-    dfs = { k:dfs[k].drop(columns = columns_to_drop ) for k in dfs }
     
     
     # gather data per time
-    dfs = {k:unique_merge_per_column(dfs[k], keep_last_point_data_only= keep_last_point_data_only) for k in dfs}
+    dfs = {k:unique_merge_per_column(dfs[k], keep_last_point_data_only= True) for k in dfs}
+    mdf1 =  dfs['1.1'] 
+    mdf2 = dfs['2.1']
+    lat_dfs1 = [ dfs[k] for k in dfs if k.startswith('1') and k!='1.1']
+    lat_dfs2 = [ dfs[k] for k in dfs if k.startswith('2') and k!='2.1' ]
 
     # remove fractional frames if necessary
     if remove_fractional_frames:
         dfs = {k:remove_fractional_frames_in_df(dfs[k]) for k in dfs}
 
-    # add prefix to columns
-    dfs = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in dfs }
+   
+    # generate dataframe of section
+
+    if use_sections:
+        #import pdb; pdb.set_trace()
+        mdf11, lat_dfs11, mdf12, lat_dfs12, mdf13, lat_dfs13= gather_dataframes_for_sections(mdf1, lat_dfs1)
+        mdf21, lat_dfs21, mdf22, lat_dfs22, mdf23, lat_dfs23 = gather_dataframes_for_sections(mdf2, lat_dfs2)
+        
 
     # gather subroots of plantroot 1 and 2
     dfs1 =  {k:dfs[k] for k in dfs if k.startswith('1')  }
     dfs2 =  {k:dfs[k] for k in dfs if k.startswith('2')  }
 
+
+    ## Now end of column computation : 
+    # remove unecessary data from dataframes 
+    dfs.update( {k:dfs[k].drop(columns = columns_kept_only_once ) for k in list(dfs.keys())[1:]} )
+    dfs = { k:dfs[k].drop(columns = columns_to_drop ) for k in dfs }
+    if use_sections:
+        lat_dfs11 =  [ v.drop(columns = columns_to_drop ) for v in lat_dfs11]
+        lat_dfs12 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs12]
+        lat_dfs13 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs13]
+        lat_dfs21 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs21]
+        lat_dfs22 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs22]
+        lat_dfs23 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs23]
+    
+    # add prefix to columns
+    dfs = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in dfs }
+
+    if use_sections:
+        lat_dfs11 =  [ add_prefix_except_column(v, k + ' r1_sec1 ', column_to_exclude= column_merge )for v in lat_dfs11]
+        lat_dfs12 =  [ add_prefix_except_column(v, k + ' r1_sec2 ', column_to_exclude= column_merge )for v in lat_dfs11]
+        lat_dfs13 =  [ add_prefix_except_column(v, k + ' r1_sec3 ', column_to_exclude= column_merge )for v in lat_dfs11]
+        lat_dfs21 =  [ add_prefix_except_column(v, k + ' r2_sec1 ', column_to_exclude= column_merge )for v in lat_dfs11]
+        lat_dfs22 =  [ add_prefix_except_column(v, k + ' r2_sec2 ', column_to_exclude= column_merge )for v in lat_dfs11]
+        lat_dfs23 =  [ add_prefix_except_column(v, k + ' r2_sec3 ', column_to_exclude= column_merge )for v in lat_dfs11]
+
+
     # merge dfs     
     df1 = merge_list_of_plantroot_dfs(list(dfs1.values()), column = column_merge)
     df2 = merge_list_of_plantroot_dfs(list(dfs2.values()), column = column_merge)
     df = merge_list_of_plantroot_dfs(list(dfs.values()), column = column_merge)
+ 
+    if use_sections:
+        df11 = merge_list_of_plantroot_dfs(lat_dfs11, column = column_merge)
+        df12 = merge_list_of_plantroot_dfs(lat_dfs12, column = column_merge)
+        df13 = merge_list_of_plantroot_dfs(lat_dfs13, column = column_merge)
+        
+        df21 = merge_list_of_plantroot_dfs(lat_dfs21, column = column_merge)
+        df22 = merge_list_of_plantroot_dfs(lat_dfs22, column = column_merge)
+        df23 = merge_list_of_plantroot_dfs(lat_dfs23, column = column_merge)
 
 
     # save to files
@@ -276,6 +351,19 @@ def _main(input_file_path, **kwargs):
         for k in dfs:
             subfile_path =  Path(subfiles_folder_path, k.replace('.','_') + '.csv')
             dfs[k].to_csv(subfile_path, index=False)
+
+    
+    if use_sections:
+        subfiles_folder_path.mkdir(exist_ok=True, parents=True)
+
+        df11.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1_section1.csv'), index=False)
+        df12.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1_section2.csv'), index=False)
+        df13.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1_section3.csv'), index=False)
+        df21.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2_section1.csv'), index=False)
+        df22.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2_section2.csv'), index=False)
+        df23.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2_section3.csv'), index=False)
+   
+
 
 
 def main(*args, **kwargs):
@@ -316,7 +404,8 @@ if __name__=='__main__':
                         help='remove lines where fractionnal point (non integer coord_t value)'
     )
 
-    parser.add_argument('--keep-last-point-data-only', 
+
+    parser.add_argument('--use-sections', 
                         action='store_true',
                         help='for a given time frame, keep only last point data'
     )
@@ -334,7 +423,7 @@ if __name__=='__main__':
         scale_factor = args.scale_factor,
         save_subfiles = args.save_subfiles,
         remove_fractional_frames = args.remove_fractional_frames,
-        keep_last_point_data_only = args.keep_last_point_data_only
+        use_sections = args.use_sections
     )
 
     print('end of parsing and conversion')
