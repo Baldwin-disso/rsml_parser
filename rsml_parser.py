@@ -105,7 +105,7 @@ def compute_mainplantroot_len_until_last_junction_at_frame(f, mdf, lat_dfs, scal
     depth = main_points[f,2].item() # retrieve current depth
     lat_first_points = np.array([
         df.iloc[0, df.columns.isin(['coord_t', 'coord_x', 'coord_y']) ].to_numpy() 
-        for df in lat_dfs  
+        for df in lat_dfs.values()  
     ])
 
     
@@ -176,7 +176,7 @@ def gather_dataframes_for_sections(mdf, lat_dfs):
     """
 
     # find cut values
-    cut12 =  max(mdf.iloc[0]['coord_y'] for mdf in lat_dfs if mdf.iloc[0]['coord_t'] <= 1) if lat_dfs else None
+    cut12 =  max(df.iloc[0]['coord_y'] for df in lat_dfs.values() if df.iloc[0]['coord_t'] <= 1) if lat_dfs else None
     cut23 =  mdf[mdf['coord_t'] == 0]['coord_y'].max()
     print(f'cut values for sections : {cut12} and {cut23}')
 
@@ -187,16 +187,16 @@ def gather_dataframes_for_sections(mdf, lat_dfs):
     mdf3 = (mdf[ mdf['coord_y'] > cut12 ]).copy()
 
     # splitting lateral roots in 3 packages
-    lat_dfs1 = []
-    lat_dfs2 = []
-    lat_dfs3 = []
-    for df in lat_dfs:
+    lat_dfs1 = {}
+    lat_dfs2 = {}
+    lat_dfs3 = {}
+    for (k,df) in lat_dfs.items():
         if not df.empty and df.iloc[0]['coord_y'] <= cut12:
-            lat_dfs1.append(df.copy())
+            lat_dfs1.update({k:df.copy()})
         elif not df.empty and df.iloc[0]['coord_y'] > cut12 and  df.iloc[0]['coord_y'] < cut23:
-            lat_dfs2.append(df.copy())
+            lat_dfs2.update({k:df.copy()})
         else:
-            lat_dfs3.append(df.copy())
+            lat_dfs3.update({k:df.copy()})
 
     return mdf1, lat_dfs1, mdf2, lat_dfs2, mdf3, lat_dfs3
 
@@ -247,8 +247,8 @@ def _main(input_file_path, **kwargs):
     # compute len until last junction
     mdf1 =  dfs['1.1'] 
     mdf2 = dfs['2.1']
-    lat_dfs1 = [ dfs[k] for k in dfs if k.startswith('1') and k!='1.1']
-    lat_dfs2 = [ dfs[k] for k in dfs if k.startswith('2') and k!='2.1' ]
+    lat_dfs1 = { k:dfs[k] for k in dfs if k.startswith('1') and k!='1.1' }
+    lat_dfs2 = { k:dfs[k] for k in dfs if k.startswith('2') and k!='2.1' }
     luj1, nb_lat1 = compute_mainplantroot_len_until_last_junction(
         mdf1, 
         lat_dfs1, 
@@ -276,9 +276,9 @@ def _main(input_file_path, **kwargs):
     dfs = {k:unique_merge_per_column(dfs[k], keep_last_point_data_only= True) for k in dfs}
     mdf1 =  dfs['1.1'] 
     mdf2 = dfs['2.1']
-    lat_dfs1 = [ dfs[k] for k in dfs if k.startswith('1') and k!='1.1']
-    lat_dfs2 = [ dfs[k] for k in dfs if k.startswith('2') and k!='2.1' ]
-
+    lat_dfs1 = { k:dfs[k] for k in dfs if k.startswith('1') and k!='1.1' }
+    lat_dfs2 = { k:dfs[k] for k in dfs if k.startswith('2') and k!='2.1' }
+    
     # remove fractional frames if necessary
     if remove_fractional_frames:
         dfs = {k:remove_fractional_frames_in_df(dfs[k]) for k in dfs}
@@ -301,24 +301,30 @@ def _main(input_file_path, **kwargs):
     # remove unecessary data from dataframes 
     dfs.update( {k:dfs[k].drop(columns = columns_kept_only_once ) for k in list(dfs.keys())[1:]} )
     dfs = { k:dfs[k].drop(columns = columns_to_drop ) for k in dfs }
+    dfs1.update( {k:dfs1[k].drop(columns = columns_kept_only_once ) for k in list(dfs1.keys())[1:]} )
+    dfs1 = { k:dfs1[k].drop(columns = columns_to_drop ) for k in dfs1 }
+    dfs2.update( {k:dfs2[k].drop(columns = columns_kept_only_once ) for k in list(dfs2.keys())[1:]} )
+    dfs2 = { k:dfs2[k].drop(columns = columns_to_drop ) for k in dfs2 }
     if use_sections:
-        lat_dfs11 =  [ v.drop(columns = columns_to_drop ) for v in lat_dfs11]
-        lat_dfs12 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs12]
-        lat_dfs13 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs13]
-        lat_dfs21 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs21]
-        lat_dfs22 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs22]
-        lat_dfs23 = [ v.drop(columns = columns_to_drop ) for v in lat_dfs23]
+        lat_dfs11 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs11.items()}
+        lat_dfs12 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs12.items()}
+        lat_dfs13 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs13.items()}
+        lat_dfs21 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs21.items()}
+        lat_dfs22 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs22.items()}
+        lat_dfs23 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs23.items()}
     
     # add prefix to columns
     dfs = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in dfs }
+    dfs1 = {k:add_prefix_except_column(dfs1[k], k + ' ', column_to_exclude= column_merge ) for k in dfs1 }
+    dfs2 = {k:add_prefix_except_column(dfs2[k], k + ' ', column_to_exclude= column_merge ) for k in dfs2 }
 
     if use_sections:
-        lat_dfs11 =  [ add_prefix_except_column(v, k + ' r1_sec1 ', column_to_exclude= column_merge )for v in lat_dfs11]
-        lat_dfs12 =  [ add_prefix_except_column(v, k + ' r1_sec2 ', column_to_exclude= column_merge )for v in lat_dfs11]
-        lat_dfs13 =  [ add_prefix_except_column(v, k + ' r1_sec3 ', column_to_exclude= column_merge )for v in lat_dfs11]
-        lat_dfs21 =  [ add_prefix_except_column(v, k + ' r2_sec1 ', column_to_exclude= column_merge )for v in lat_dfs11]
-        lat_dfs22 =  [ add_prefix_except_column(v, k + ' r2_sec2 ', column_to_exclude= column_merge )for v in lat_dfs11]
-        lat_dfs23 =  [ add_prefix_except_column(v, k + ' r2_sec3 ', column_to_exclude= column_merge )for v in lat_dfs11]
+        lat_dfs11 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs11 }
+        lat_dfs12 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs12 }
+        lat_dfs13 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs13 }
+        lat_dfs21 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs21 }
+        lat_dfs22 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs22 }
+        lat_dfs23 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs23 }
 
 
     # merge dfs     
@@ -327,13 +333,13 @@ def _main(input_file_path, **kwargs):
     df = merge_list_of_plantroot_dfs(list(dfs.values()), column = column_merge)
  
     if use_sections:
-        df11 = merge_list_of_plantroot_dfs(lat_dfs11, column = column_merge)
-        df12 = merge_list_of_plantroot_dfs(lat_dfs12, column = column_merge)
-        df13 = merge_list_of_plantroot_dfs(lat_dfs13, column = column_merge)
+        df11 = merge_list_of_plantroot_dfs(list(lat_dfs11.values()), column = column_merge)
+        df12 = merge_list_of_plantroot_dfs(list(lat_dfs12.values()), column = column_merge)
+        df13 = merge_list_of_plantroot_dfs(list(lat_dfs13.values()), column = column_merge)
         
-        df21 = merge_list_of_plantroot_dfs(lat_dfs21, column = column_merge)
-        df22 = merge_list_of_plantroot_dfs(lat_dfs22, column = column_merge)
-        df23 = merge_list_of_plantroot_dfs(lat_dfs23, column = column_merge)
+        df21 = merge_list_of_plantroot_dfs(list(lat_dfs21.values()), column = column_merge)
+        df22 = merge_list_of_plantroot_dfs(list(lat_dfs22.values()), column = column_merge)
+        df23 = merge_list_of_plantroot_dfs(list(lat_dfs23.values()), column = column_merge)
 
 
     # save to files
