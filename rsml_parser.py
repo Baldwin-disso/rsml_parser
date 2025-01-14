@@ -174,29 +174,47 @@ def gather_dataframes_for_sections(mdf, lat_dfs):
         - section 2 : from section 1 to end at time 0
         - section 3 : sctrictly after time 0  
     """
-
+    #import pdb; pdb.set_trace()
     # find cut values
-    cut12 =  max(df.iloc[0]['coord_y'] for df in lat_dfs.values() if df.iloc[0]['coord_t'] <= 1) if lat_dfs else None
+    cut12 =  max(df.iloc[0]['coord_y'] for df in lat_dfs.values() if df.iloc[0]['coord_t'] <= 1) \
+        if lat_dfs and bool([df.iloc[0]['coord_y'] for df in lat_dfs.values() if df.iloc[0]['coord_t'] <= 1])\
+        else None
+
+
     cut23 =  mdf[mdf['coord_t'] == 0]['coord_y'].max()
+    
     print(f'cut values for sections : {cut12} and {cut23}')
 
-    # splitting main df in 3 section ?
-    mdf1 =  (mdf[ mdf['coord_y'] <= cut12 ]).copy()
-    #import pdb; pdb.set_trace()
-    mdf2 = (mdf[(mdf['coord_y'] > cut12)  & (mdf['coord_y'] <= cut23)  ]).copy()
-    mdf3 = (mdf[ mdf['coord_y'] > cut12 ]).copy()
+    if cut12: # case where lateral roots exists from the beginning
+        # splitting main df in 3 section ?
+        mdf1 =  (mdf[ mdf['coord_y'] <= cut12 ]).copy()
+        #import pdb; pdb.set_trace()
+        mdf2 = (mdf[(mdf['coord_y'] > cut12)  & (mdf['coord_y'] <= cut23)  ]).copy()
+        mdf3 = (mdf[ mdf['coord_y'] > cut23 ]).copy()
+    else: 
+        mdf1 = None
+        mdf2 = (mdf[(mdf['coord_y'] <= cut23)  ]).copy()
+        mdf3 = (mdf[ mdf['coord_y'] > cut23 ]).copy()
 
     # splitting lateral roots in 3 packages
     lat_dfs1 = {}
     lat_dfs2 = {}
     lat_dfs3 = {}
-    for (k,df) in lat_dfs.items():
-        if not df.empty and df.iloc[0]['coord_y'] <= cut12:
-            lat_dfs1.update({k:df.copy()})
-        elif not df.empty and df.iloc[0]['coord_y'] > cut12 and  df.iloc[0]['coord_y'] < cut23:
-            lat_dfs2.update({k:df.copy()})
-        else:
-            lat_dfs3.update({k:df.copy()})
+
+    if cut12: # case where lateral roots exists from the beginning
+        for (k,df) in lat_dfs.items():
+            if not df.empty and df.iloc[0]['coord_y'] <= cut12:
+                lat_dfs1.update({k:df.copy()})
+            elif not df.empty and df.iloc[0]['coord_y'] > cut12 and  df.iloc[0]['coord_y'] < cut23:
+                lat_dfs2.update({k:df.copy()})
+            else:
+                lat_dfs3.update({k:df.copy()})
+    else: 
+        for (k,df) in lat_dfs.items():
+            if not df.empty and df.iloc[0]['coord_y'] < cut23:
+                lat_dfs2.update({k:df.copy()})
+            else:
+                lat_dfs3.update({k:df.copy()})
 
     return mdf1, lat_dfs1, mdf2, lat_dfs2, mdf3, lat_dfs3
 
@@ -285,11 +303,13 @@ def _main(input_file_path, **kwargs):
 
    
     # generate dataframe of section
-
+    
     if use_sections:
-        #import pdb; pdb.set_trace()
+        
         mdf11, lat_dfs11, mdf12, lat_dfs12, mdf13, lat_dfs13= gather_dataframes_for_sections(mdf1, lat_dfs1)
         mdf21, lat_dfs21, mdf22, lat_dfs22, mdf23, lat_dfs23 = gather_dataframes_for_sections(mdf2, lat_dfs2)
+        
+
         
 
     # gather subroots of plantroot 1 and 2
@@ -299,6 +319,7 @@ def _main(input_file_path, **kwargs):
 
     ## Now end of column computation : 
     # remove unecessary data from dataframes 
+    
     dfs.update( {k:dfs[k].drop(columns = columns_kept_only_once ) for k in list(dfs.keys())[1:]} )
     dfs = { k:dfs[k].drop(columns = columns_to_drop ) for k in dfs }
     dfs1.update( {k:dfs1[k].drop(columns = columns_kept_only_once ) for k in list(dfs1.keys())[1:]} )
@@ -306,10 +327,10 @@ def _main(input_file_path, **kwargs):
     dfs2.update( {k:dfs2[k].drop(columns = columns_kept_only_once ) for k in list(dfs2.keys())[1:]} )
     dfs2 = { k:dfs2[k].drop(columns = columns_to_drop ) for k in dfs2 }
     if use_sections:
-        lat_dfs11 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs11.items()}
+        lat_dfs11 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs11.items()} 
         lat_dfs12 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs12.items()}
         lat_dfs13 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs13.items()}
-        lat_dfs21 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs21.items()}
+        lat_dfs21 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs21.items()} 
         lat_dfs22 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs22.items()}
         lat_dfs23 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs23.items()}
     
@@ -319,10 +340,10 @@ def _main(input_file_path, **kwargs):
     dfs2 = {k:add_prefix_except_column(dfs2[k], k + ' ', column_to_exclude= column_merge ) for k in dfs2 }
 
     if use_sections:
-        lat_dfs11 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs11 }
+        lat_dfs11 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs11 } 
         lat_dfs12 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs12 }
         lat_dfs13 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs13 }
-        lat_dfs21 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs21 }
+        lat_dfs21 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs21 } 
         lat_dfs22 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs22 }
         lat_dfs23 = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in lat_dfs23 }
 
@@ -333,13 +354,14 @@ def _main(input_file_path, **kwargs):
     df = merge_list_of_plantroot_dfs(list(dfs.values()), column = column_merge)
  
     if use_sections:
-        df11 = merge_list_of_plantroot_dfs(list(lat_dfs11.values()), column = column_merge)
-        df12 = merge_list_of_plantroot_dfs(list(lat_dfs12.values()), column = column_merge)
-        df13 = merge_list_of_plantroot_dfs(list(lat_dfs13.values()), column = column_merge)
+        df11 = merge_list_of_plantroot_dfs(list(lat_dfs11.values()), column = column_merge) if lat_dfs11 else None
+        #import pdb; pdb.set_trace()
+        df12 = merge_list_of_plantroot_dfs(list(lat_dfs12.values()), column = column_merge) if lat_dfs12 else None
+        df13 = merge_list_of_plantroot_dfs(list(lat_dfs13.values()), column = column_merge) if lat_dfs13 else None
         
-        df21 = merge_list_of_plantroot_dfs(list(lat_dfs21.values()), column = column_merge)
-        df22 = merge_list_of_plantroot_dfs(list(lat_dfs22.values()), column = column_merge)
-        df23 = merge_list_of_plantroot_dfs(list(lat_dfs23.values()), column = column_merge)
+        df21 = merge_list_of_plantroot_dfs(list(lat_dfs21.values()), column = column_merge) if lat_dfs21 else None
+        df22 = merge_list_of_plantroot_dfs(list(lat_dfs22.values()), column = column_merge) if lat_dfs22 else None
+        df23 = merge_list_of_plantroot_dfs(list(lat_dfs23.values()), column = column_merge) if lat_dfs23 else None
 
 
     # save to files
@@ -361,13 +383,18 @@ def _main(input_file_path, **kwargs):
     
     if use_sections:
         subfiles_folder_path.mkdir(exist_ok=True, parents=True)
-
-        df11.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1_section1.csv'), index=False)
-        df12.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1_section2.csv'), index=False)
-        df13.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1_section3.csv'), index=False)
-        df21.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2_section1.csv'), index=False)
-        df22.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2_section2.csv'), index=False)
-        df23.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2_section3.csv'), index=False)
+        if df11 is not None and not df11.empty: 
+            df11.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1_section1.csv'), index=False)
+        if df12 is not None and not df12.empty:    
+            df12.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1_section2.csv'), index=False)
+        if df13 is not None and not df13.empty:
+            df13.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root1_section3.csv'), index=False)
+        if df21 is not None and not df21.empty:
+            df21.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2_section1.csv'), index=False)
+        if df22 is not None and not df22.empty:
+            df22.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2_section2.csv'), index=False)
+        if df23 is not None and not df23.empty:
+            df23.to_csv(Path(subfiles_folder_path,  input_file_path.stem + '_root2_section3.csv'), index=False)
    
 
 
@@ -380,6 +407,8 @@ def main(*args, **kwargs):
 
 if __name__=='__main__':
     #parsing
+    # ex 1 : python rsml_parser.py p04.rsml --save-subfiles --remove-fractional-frames --use-sections 
+    # ex 2 : python rsml_parser.py 6.rsml --save-subfiles --remove-fractional-frames --use-sections 
     parser = argparse.ArgumentParser(description='rsml parser and converter')
     parser.add_argument('inputfiles', 
                         type=str, 
@@ -412,6 +441,11 @@ if __name__=='__main__':
 
 
     parser.add_argument('--use-sections', 
+                        action='store_true',
+                        help='for a given time frame, keep only last point data'
+    )
+
+    parser.add_argument('--one-type-of-column-per-csv', 
                         action='store_true',
                         help='for a given time frame, keep only last point data'
     )
