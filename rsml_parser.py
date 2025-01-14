@@ -190,7 +190,7 @@ def gather_dataframes_for_sections(mdf, lat_dfs):
         else None
 
 
-    cut23 =  mdf[mdf['coord_t'] == 0]['coord_y'].max()
+    cut23 =  mdf[mdf['coord_th'] == 0.0].iloc[-1]['coord_y']
     
     print(f'cut values for sections : {cut12} and {cut23}')
 
