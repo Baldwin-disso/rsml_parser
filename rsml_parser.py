@@ -6,6 +6,7 @@ import argparse
 # packages to install
 import numpy as np
 import pandas as pd
+import re
 
 
 ###### parsing
@@ -218,6 +219,72 @@ def gather_dataframes_for_sections(mdf, lat_dfs):
 
     return mdf1, lat_dfs1, mdf2, lat_dfs2, mdf3, lat_dfs3
 
+def reorder_columns_by_metric_with_list_old(df, metrics=['cumuldist', 'tortuosity', 'cumuldistjunction', 'nblaterals']):
+    """
+    Réorganise les colonnes d'un DataFrame en utilisant une liste de métriques prédéfinie.
+
+    Args:
+        df (pd.DataFrame): Le DataFrame à traiter.
+        metrics (list): Liste des métriques à utiliser pour l'organisation.
+
+    Returns:
+        pd.DataFrame: Un nouveau DataFrame avec les colonnes réorganisées.
+    """
+    # Séparer les colonnes non conformes
+    metric_columns = [col for col in df.columns if any(metric in col for metric in metrics)]
+    other_columns = [col for col in df.columns if col not in metric_columns]
+
+    # Organiser les colonnes metrics par métrique
+    grouped_columns = {metric: [] for metric in metrics}
+    for col in metric_columns:
+        for metric in metrics:
+            if metric in col:
+                grouped_columns[metric].append(col)
+                break
+
+    # Réorganiser chaque groupe par racine
+    sorted_metric_columns = []
+    for metric, cols in grouped_columns.items():
+        sorted_cols = sorted(cols, key=lambda x: [float(num) for num in re.findall(r'\\d+\\.\\d+', x)])
+        sorted_metric_columns.extend(sorted_cols)
+
+    # Réassembler les colonnes dans l'ordre souhaité
+    new_column_order = other_columns + sorted_metric_columns
+    return df[new_column_order]
+
+def reorder_columns_by_metric_with_list(df, metrics=['cumuldist', 'tortuosity', 'cumuldistjunction', 'nblaterals']):
+    """
+    Réorganise les colonnes d'un DataFrame en utilisant une liste de métriques prédéfinie.
+
+    Args:
+        df (pd.DataFrame): Le DataFrame à traiter.
+        metrics (list): Liste des métriques à utiliser pour l'organisation.
+
+    Returns:
+        pd.DataFrame: Un nouveau DataFrame avec les colonnes réorganisées.
+    """
+    # Séparer les colonnes non conformes
+    metric_columns = [col for col in df.columns if any(col.endswith(f" {metric}") for metric in metrics)]
+    other_columns = [col for col in df.columns if col not in metric_columns]
+
+    # Organiser les colonnes metrics par métrique
+    grouped_columns = {metric: [] for metric in metrics}
+    for col in metric_columns:
+        for metric in metrics:
+            if col.endswith(f" {metric}"):
+                grouped_columns[metric].append(col)
+                break
+
+    # Réorganiser chaque groupe par racine
+    sorted_metric_columns = []
+    for metric, cols in grouped_columns.items():
+        sorted_cols = sorted(cols, key=lambda x: [float(num) for num in re.findall(r'\\d+\\.\\d+', x)])
+        sorted_metric_columns.extend(sorted_cols)
+
+    # Réassembler les colonnes dans l'ordre souhaité
+    new_column_order = other_columns + sorted_metric_columns
+    return df[new_column_order]
+
 #### MAIN 
 def _main(input_file_path, **kwargs):   
     print('parsing and converting : {}'.format(input_file_path))
@@ -334,6 +401,8 @@ def _main(input_file_path, **kwargs):
         lat_dfs22 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs22.items()}
         lat_dfs23 = { k:v.drop(columns = columns_to_drop ) for (k,v) in lat_dfs23.items()}
     
+    
+
     # add prefix to columns
     dfs = {k:add_prefix_except_column(dfs[k], k + ' ', column_to_exclude= column_merge ) for k in dfs }
     dfs1 = {k:add_prefix_except_column(dfs1[k], k + ' ', column_to_exclude= column_merge ) for k in dfs1 }
@@ -352,16 +421,29 @@ def _main(input_file_path, **kwargs):
     df1 = merge_list_of_plantroot_dfs(list(dfs1.values()), column = column_merge)
     df2 = merge_list_of_plantroot_dfs(list(dfs2.values()), column = column_merge)
     df = merge_list_of_plantroot_dfs(list(dfs.values()), column = column_merge)
+
+    df1 = reorder_columns_by_metric_with_list(df1) 
+    df2 = reorder_columns_by_metric_with_list(df2)
+    df = reorder_columns_by_metric_with_list(df)
+    
  
     if use_sections:
         df11 = merge_list_of_plantroot_dfs(list(lat_dfs11.values()), column = column_merge) if lat_dfs11 else None
-        #import pdb; pdb.set_trace()
         df12 = merge_list_of_plantroot_dfs(list(lat_dfs12.values()), column = column_merge) if lat_dfs12 else None
         df13 = merge_list_of_plantroot_dfs(list(lat_dfs13.values()), column = column_merge) if lat_dfs13 else None
         
         df21 = merge_list_of_plantroot_dfs(list(lat_dfs21.values()), column = column_merge) if lat_dfs21 else None
         df22 = merge_list_of_plantroot_dfs(list(lat_dfs22.values()), column = column_merge) if lat_dfs22 else None
         df23 = merge_list_of_plantroot_dfs(list(lat_dfs23.values()), column = column_merge) if lat_dfs23 else None
+
+        df11 = reorder_columns_by_metric_with_list(df11) if lat_dfs11 else None
+        df12 = reorder_columns_by_metric_with_list(df12) if lat_dfs12 else None
+        df13 = reorder_columns_by_metric_with_list(df13) if lat_dfs13 else None
+        
+        df21 = reorder_columns_by_metric_with_list(df21) if lat_dfs21 else None
+        df22 = reorder_columns_by_metric_with_list(df22) if lat_dfs22 else None
+        df23 = reorder_columns_by_metric_with_list(df23) if lat_dfs23 else None
+        
 
 
     # save to files
