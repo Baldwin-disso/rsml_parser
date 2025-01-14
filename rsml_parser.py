@@ -58,8 +58,16 @@ def replace_single_element_list(cell, keep_last_point_data_only= False):
 
 def unique_merge_per_column(df, column ='coord_t', keep_last_point_data_only=False):
     df = df.groupby(column).agg(lambda x: x.dropna().tolist()).reset_index()
-    df = df.applymap(lambda x: replace_single_element_list(x, keep_last_point_data_only=keep_last_point_data_only )) # remove bracket one liste contains one single element
+    df = apply_function_to_dataframe(df, lambda x: replace_single_element_list(x, keep_last_point_data_only=keep_last_point_data_only )) # remove bracket one liste contains one single element
     return df
+
+def apply_function_to_dataframe(df, func):
+    try:
+        # Teste si la méthode map est disponible pour le DataFrame
+        return df.map(func)
+    except AttributeError:
+        # Si map n'est pas disponible, utilise applymap
+        return df.applymap(func)
 
 def merge_list_of_plantroot_dfs(dfs, column ='coord_t'):
     dfout = dfs[0].copy()
